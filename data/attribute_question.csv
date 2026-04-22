@@ -1,0 +1,16 @@
+Attributes,Questions
+is_alive,Is it alive?
+is_big,Is it big?
+is_animal,Is it an animal?
+is_human,Is it human?
+can_fly,Can it fly?
+can_swim,Does it live in water?
+is_food,Can you eat it?
+is_furniture,Can it be used as furniture?
+is_tool,Is it a tool?
+is_pet,Can it be considered a pet?
+can_bark,Does it bark?
+is_clothes,Can you wear it?
+is_accessory,Is it used as an accessory?
+can_write,Can you write with it?
+is_liquid,Is it liquid?
