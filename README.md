@@ -68,12 +68,18 @@ neural-20-questions/
 │   ├── data_loader.py              # Reads CSVs, returns structured data dict
 │   ├── entropy.py                  # Shannon entropy calculation + question selector
 │   ├── candidate_filter.py        # Filters candidate set based on yes/no answers
-│   └── game.py                    # Game loop, I/O, reasoning trace
+│   ├── question_agent.py          # Selects the next question from current belief state
+│   ├── belief_agent.py            # Tracks candidate state; applies answers as belief updates
+│   ├── guesser_agent.py           # Owns the stopping condition and final guess
+│   └── game.py                    # GameRunner — thin orchestrator, I/O only
 ├── archive/
 │   ├── notebooks/
 │   │   ├── 20_Questions_P1.ipynb       # v1 — initial prototype
 │   │   ├── 20_Questions_P1.5.ipynb     # v1.5 — reasoning trace added
 │   │   └── 20_Questions_P1.5.1.ipynb  # v1.5.1 — final notebook version
+│   ├── v2/
+│   │   ├── game.py                     # v2 game loop before multi-agent refactor
+│   │   └── __init__.py
 │   └── README_v1.md               # Original README preserved verbatim
 ├── main.py                        # Entry point — run this to play
 ├── requirements.txt
@@ -126,6 +132,18 @@ Key decisions:
 
 Behavior is identical to v1.5.1. Structure is production-ready.
 
+### v3 — Multi-Agent Architecture (`question_agent.py`, `belief_agent.py`, `guesser_agent.py`)
+The v2 modules were clean, but `game.py` was still making decisions it shouldn't own — calling entropy directly, holding game state as loose local variables, embedding the stopping condition in a `while` loop. v3 introduces three explicit agents, each with a single defined responsibility.
+
+`QuestionAgent` owns question selection. `BeliefAgent` owns candidate state — it introduces `BeliefState`, an immutable data object that replaces the three separate variables (`filtered_df`, `asked`, `question_count`) the loop was managing manually. `GuesserAgent` owns the stopping condition and produces a typed `GuessResult`, separating the *decision* from the *display*. `GameRunner` in `game.py` is now a pure orchestrator: it reads input, prints output, and passes data between agents. It makes no decisions itself.
+
+Each future phase now has a designated seam:
+- Phase 2 (spaCy embeddings) → `BeliefAgent.update()` and `QuestionAgent.select()`
+- Phase 3 (neural question selector) → `GuesserAgent` + swap `entropy.py`
+- Streamlit interface → subclass `GameRunner`, override display and input
+
+Behavior is identical to v1.5.1. Architecture is now extensible by design.
+
 ---
 
 ## What I Learned
@@ -156,7 +174,7 @@ The plan is to integrate **spaCy** (specifically `en_core_web_md`) to represent 
 
 I also want to build **data visualizations** from this: a cosine similarity heatmap across all objects, and a 2D projection (via t-SNE or PCA) showing how objects cluster semantically. I've worked with correlation matrices before, and I expect there's a meaningful analog here — some kind of visual map of how the objects relate to each other in semantic space.
 
-The architecture is already set up for this swap. `entropy.py` and `candidate_filter.py` are isolated enough that Phase 2 changes those two modules and nothing else.
+The architecture is already set up for this swap. Phase 2 changes `BeliefAgent.update()` (filtering logic) and `QuestionAgent.select()` (selection strategy) and nothing else.
 
 ### Phase 2.5 — Hybrid Reasoning with ConceptNet
 
