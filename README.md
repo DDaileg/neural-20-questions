@@ -19,20 +19,20 @@ Cat, Pencil, House, Bee, Chicken, Cow, Bed, Sandwich, Water, Goldfish
 
 Answer the following questions with 'y' or 'n'.
 --------------------------------------------------
-Q1: Is it alive? (y/n): n
+Q1: Is it alive? (y/n): y
   → Entropy: 1.000 | Candidates remaining: 10
-Q2: Is it big? (y/n): n
-  → Entropy: 0.722 | Candidates remaining: 8
-Q3: Can you eat it? (y/n): y
-  → Entropy: 0.811 | Candidates remaining: 2 (Sandwich, Water)
-Q4: Is it liquid? (y/n): n
-  → Entropy: 1.000 | Candidates remaining: 1 (Sandwich)
+Q2: Is it big? (y/n): y
+  → Entropy: 0.881 | Candidates remaining: 3 (Elephant (0.90), Cow (0.90), Shark (0.68))
+Q3: Does it live in water? (y/n): n
+  → Entropy: 0.918 | Candidates remaining: 2 (Elephant (1.00), Cow (1.00))
+Q4: Can you eat it? (y/n): n
+  → Entropy: 1.000 | Candidates remaining: 1 (Elephant (1.00))
 --------------------------------------------------
-I guess you are thinking of: Sandwich
+I guess you are thinking of: Elephant
 Got it in 4 question(s).
 ```
 
-The reasoning trace after each answer shows the entropy score of the chosen question and how many candidates remain — making the decision process visible at every step.
+The reasoning trace now shows two signals: the entropy score of the chosen question (how informative the split was) and a similarity score for each candidate (how semantically consistent it is with the surviving cluster). Notice Shark scoring 0.68 against Elephant and Cow at 0.90 — the system recognized the semantic outlier before the next boolean filter confirmed it.
 
 ---
 
@@ -54,6 +54,20 @@ This transforms the system from *"ask a reasonable question"* to *"ask the most 
 
 This is a **greedy** strategy — it picks the locally optimal question at each step without looking ahead. That's a known limitation and a direction for future work.
 
+### Phase 2: Semantic Scoring Layer
+
+Phase 2 adds a semantic intelligence layer on top of the entropy-based question selector. Each candidate object is now represented as a 300-dimensional word vector loaded from spaCy's `en_core_web_md` model. After each boolean filter step, the system:
+
+1. Builds a **centroid** from the surviving candidates' word vectors
+2. Scores each survivor by **cosine similarity** to that centroid
+3. Ranks and displays candidates by score in the reasoning trace
+
+The boolean filter still drives elimination — that's what keeps the game correct. The similarity scores add a semantic ranking layer on top: they surface which candidates are most semantically consistent with the cluster that survived, and which are outliers likely to be eliminated soon.
+
+The Shark example above illustrates this directly. After "Is it big? → yes", the surviving candidates are Elephant, Cow, and Shark. Elephant and Cow cluster tightly in semantic space (large land mammals); Shark scores noticeably lower (0.68 vs 0.90) because its vector pulls toward aquatic and predatory associations. The system flags it as the semantic outlier one question before "Does it live in water?" confirms it.
+
+This is a form of **soft belief updating** — each answer doesn't just cut the candidate list, it reshapes the system's semantic picture of what the target probably is.
+
 ---
 
 ## Project Structure
@@ -65,21 +79,25 @@ neural-20-questions/
 │   └── attribute_question.csv     # Maps attribute names to natural language questions
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py              # Reads CSVs, returns structured data dict
+│   ├── data_loader.py              # Reads CSVs, precomputes spaCy vectors, returns data dict
 │   ├── entropy.py                  # Shannon entropy calculation + question selector
-│   ├── candidate_filter.py        # Filters candidate set based on yes/no answers
-│   ├── question_agent.py          # Selects the next question from current belief state
-│   ├── belief_agent.py            # Tracks candidate state; applies answers as belief updates
-│   ├── guesser_agent.py           # Owns the stopping condition and final guess
-│   └── game.py                    # GameRunner — thin orchestrator, I/O only
+│   ├── candidate_filter.py        # Hybrid boolean + cosine similarity filtering
+│   ├── game.py                    # Game loop, I/O, reasoning trace (GameRunner orchestrator)
+│   ├── question_agent.py          # QuestionAgent — owns question selection via entropy
+│   ├── belief_agent.py            # BeliefAgent — owns candidate state (BeliefState dataclass)
+│   └── guesser_agent.py           # GuesserAgent — owns stopping condition (GuessResult dataclass)
 ├── archive/
+│   ├── v2/                        # Pre-agent architecture preserved
+│   │   ├── __init__.py
+│   │   └── game.py
+│   ├── v3/                        # Pre-Phase 2 files preserved
+│   │   ├── candidate_filter.py
+│   │   ├── data_loader.py
+│   │   └── game.py
 │   ├── notebooks/
 │   │   ├── 20_Questions_P1.ipynb       # v1 — initial prototype
 │   │   ├── 20_Questions_P1.5.ipynb     # v1.5 — reasoning trace added
 │   │   └── 20_Questions_P1.5.1.ipynb  # v1.5.1 — final notebook version
-│   ├── v2/
-│   │   ├── game.py                     # v2 game loop before multi-agent refactor
-│   │   └── __init__.py
 │   └── README_v1.md               # Original README preserved verbatim
 ├── main.py                        # Entry point — run this to play
 ├── requirements.txt
@@ -90,16 +108,31 @@ neural-20-questions/
 
 ## Setup
 
-**Requirements:** Python 3.11+
+**Requirements:** Python 3.11+, conda (recommended) or any virtual environment manager
 
+**Using conda:**
 ```bash
 git clone https://github.com/DDaileg/neural-20-questions.git
 cd neural-20-questions
+conda create -n 20q_env python=3.11
+conda activate 20q_env
 pip install -r requirements.txt
+python -m spacy download en_core_web_md
 python main.py
 ```
 
-That's it. The game starts immediately in your terminal.
+**Using venv:**
+```bash
+git clone https://github.com/DDaileg/neural-20-questions.git
+cd neural-20-questions
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python -m spacy download en_core_web_md
+python main.py
+```
+
+The game starts immediately in your terminal.
 
 ---
 
@@ -126,23 +159,34 @@ A full restructure from notebook to modular Python package, informed by a multi-
 Key decisions:
 - **`data_loader.py`** — data access isolated; single return dict with named keys
 - **`entropy.py`** — entropy math fully decoupled from game state; `attributes` passed as a parameter instead of referenced as a global
-- **`candidate_filter.py`** — filtering extracted and independently testable; `reset_index` applied for clean downstream DataFrames; Phase 2 swaps the boolean filter for soft similarity filtering here without touching anything else
+- **`candidate_filter.py`** — filtering extracted and independently testable; `reset_index` applied for clean downstream DataFrames
 - **`game.py`** — orchestrates the other modules; display functions separated for future Streamlit compatibility
 - **`main.py`** — single entry point; `python main.py` runs the game from the project root
 
 Behavior is identical to v1.5.1. Structure is production-ready.
 
-### v3 — Multi-Agent Architecture (`question_agent.py`, `belief_agent.py`, `guesser_agent.py`)
+### v3 — Multi-Agent Architecture
 The v2 modules were clean, but `game.py` was still making decisions it shouldn't own — calling entropy directly, holding game state as loose local variables, embedding the stopping condition in a `while` loop. v3 introduces three explicit agents, each with a single defined responsibility.
 
 `QuestionAgent` owns question selection. `BeliefAgent` owns candidate state — it introduces `BeliefState`, an immutable data object that replaces the three separate variables (`filtered_df`, `asked`, `question_count`) the loop was managing manually. `GuesserAgent` owns the stopping condition and produces a typed `GuessResult`, separating the *decision* from the *display*. `GameRunner` in `game.py` is now a pure orchestrator: it reads input, prints output, and passes data between agents. It makes no decisions itself.
 
-Each future phase now has a designated seam:
-- Phase 2 (spaCy embeddings) → `BeliefAgent.update()` and `QuestionAgent.select()`
+Each future phase has a designated seam:
+- Phase 2 (spaCy embeddings) → `BeliefAgent.update()` and `candidate_filter.py`
 - Phase 3 (neural question selector) → `GuesserAgent` + swap `entropy.py`
 - Streamlit interface → subclass `GameRunner`, override display and input
 
-Behavior is identical to v1.5.1. Architecture is now extensible by design.
+Behavior is identical to v1.5.1. Architecture is extensible by design.
+
+### v4 — Phase 2: Semantic Intelligence Layer
+Phase 2 upgrades `candidate_filter.py` and `data_loader.py` to add a semantic scoring layer on top of the boolean filtering system.
+
+`data_loader.py` now loads spaCy's `en_core_web_md` model at startup and precomputes a 300-dimensional word vector for each of the 20 candidate objects. These vectors are stored in the data dict and passed through the system without any other module needing to import spaCy directly.
+
+`candidate_filter.py` now runs a two-step process on every turn: hard boolean filter first (same as before), then centroid-based cosine similarity scoring on the survivors. The centroid is computed from the surviving candidates' vectors after each filter step. Each survivor is scored by how close it sits to that centroid in semantic space, and the scores are attached to the DataFrame for display in the reasoning trace.
+
+The key design decision: similarity scoring ranks survivors, it doesn't eliminate them. Boolean filtering remains the gate. This keeps the game correct while making the reasoning trace semantically meaningful — you can watch the system's confidence distribute across candidates as the search narrows.
+
+`game.py` required only one change: passing `vectors` into `filter_candidates()`. No other module was touched.
 
 ---
 
@@ -162,19 +206,11 @@ I haven't fully answered either of them yet — this project is still in progres
 
 **Clean architecture as a scaling decision.** The notebook version worked. Refactoring it wasn't about fixing something broken — it was about making sure the entropy module could be swapped for an embedding-based selector in Phase 2 without touching the game loop. That kind of forward-looking structure is something I've started thinking about before I write the first line of any new module.
 
+**Word vectors as semantic geometry.** In Phase 2, I ran into a design failure before getting to the working version. My first attempt used similarity scoring as the sole elimination mechanism — no boolean filter. Everything stayed above the threshold because cosine similarity in a dense vector space doesn't naturally produce clean hard separations. The fix was to keep boolean filtering as the gate and use similarity for ranking only. That distinction — between a hard decision boundary and a soft scoring signal — is something I now think about explicitly when designing any filtering step.
+
 ---
 
 ## What's Next
-
-### Phase 2 — Semantic Intelligence Layer
-
-Phase 2 has been on my mind for a while. The binary attribute system works, but it has a hard ceiling: every feature is hand-coded, and the system can only guess objects that already exist in the dataset. Phase 2 replaces that with something more flexible.
-
-The plan is to integrate **spaCy** (specifically `en_core_web_md`) to represent each object as a 300-dimensional semantic vector. Instead of filtering by boolean match, the system will use **cosine similarity** to measure how close the remaining candidates are to the inferred "truth vector" as each answer narrows the search space. Each yes/no answer isn't just a filter — it becomes a transformation of belief in semantic space.
-
-I also want to build **data visualizations** from this: a cosine similarity heatmap across all objects, and a 2D projection (via t-SNE or PCA) showing how objects cluster semantically. I've worked with correlation matrices before, and I expect there's a meaningful analog here — some kind of visual map of how the objects relate to each other in semantic space.
-
-The architecture is already set up for this swap. Phase 2 changes `BeliefAgent.update()` (filtering logic) and `QuestionAgent.select()` (selection strategy) and nothing else.
 
 ### Phase 2.5 — Hybrid Reasoning with ConceptNet
 
@@ -191,7 +227,9 @@ This means the system can generate its own questions for objects it hasn't seen 
 
 ### Full Roadmap
 
-- [ ] **Phase 2 — Semantic embeddings:** spaCy vectors replace binary attributes; cosine similarity replaces boolean filtering; similarity heatmap + t-SNE visualization
+- [x] **Phase 1 — Manual decision tree:** fixed object list, binary attributes, game loop
+- [x] **Phase 1.5 — Entropy-based question selection:** Shannon entropy replaces table-order questioning; reasoning trace added
+- [x] **Phase 2 — Semantic scoring layer:** spaCy word vectors + cosine similarity scoring on survivors; semantic ranking visible in reasoning trace
 - [ ] **Phase 2.5 — ConceptNet integration:** automated feature extraction from relational knowledge; dynamically generated yes/no questions from relation templates
 - [ ] **Phase 3 — Neural question selector:** train an MLP to predict the best next question from the current answer state, replacing the greedy entropy selector
 - [ ] **Phase 4 — Online learning:** update the knowledge base when the bot guesses wrong; new objects and attributes added through gameplay
