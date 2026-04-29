@@ -1,5 +1,5 @@
 numpy
 pandas
 # Phase 2 (embeddings):
-# spacy
+spacy
 # torch
