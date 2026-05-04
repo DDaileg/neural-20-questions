@@ -9,8 +9,8 @@ set of attributes already asked, and the count of questions used so far.
 BeliefAgent owns the update logic — given an attribute and a yes/no answer,
 it returns a new BeliefState. Immutable updates keep the game loop clean.
 
-When Phase 2 lands (spaCy embeddings), BeliefAgent.update() is where boolean
-filtering gets replaced with cosine similarity scoring — nothing else changes.
+update() always receives a static attribute column name — QuestionAgent
+resolves any ConceptNet question to its mapped static attr before returning.
 
 Interface:
     state = BeliefState(df)
@@ -21,7 +21,7 @@ Interface:
 """
 
 import pandas as pd
-from candidate_filter import filter_candidates, filter_candidates_by_conceptnet, get_candidate_names
+from candidate_filter import filter_candidates, get_candidate_names
 
 
 class BeliefState:
@@ -58,14 +58,11 @@ class BeliefAgent:
     Updates belief state after each answer.
 
     Args:
-        vectors   : precomputed word vectors from data_loader
-        cn_client : ConceptNetClient instance; if None, CN questions are not
-                    supported and any "cn:..." key falls back to no-op filtering
+        vectors : precomputed word vectors from data_loader
     """
 
-    def __init__(self, vectors: dict, cn_client=None):
+    def __init__(self, vectors: dict):
         self.vectors = vectors
-        self.cn = cn_client
 
     def update(
         self,
@@ -76,16 +73,10 @@ class BeliefAgent:
         """
         Applies a yes/no answer to produce a new BeliefState.
 
-        Routes ConceptNet question keys ("cn:...") to
-        filter_candidates_by_conceptnet(); all other keys use the
-        boolean + cosine filter_candidates() path.
+        attr is always a static attribute column name — QuestionAgent
+        resolves CN questions to their mapped static attr before this is called.
         """
-        if attr.startswith("cn:") and self.cn is not None:
-            filtered = filter_candidates_by_conceptnet(
-                state.candidates, attr, answer, self.cn, self.vectors
-            )
-        else:
-            filtered = filter_candidates(state.candidates, attr, answer, self.vectors)
+        filtered = filter_candidates(state.candidates, attr, answer, self.vectors)
 
         new_asked = state.asked | {attr}
         return BeliefState(

@@ -30,11 +30,11 @@ Do NOT use pip outside the conda env (`20q_env`).
 **`game.py`**: Pure orchestrator. Creates `ConceptNetClient`, `BeliefAgent`, `QuestionAgent`, and `GuesserAgent`, then runs the loop by delegating to each.
 
 **Agent layer**:
-- `QuestionAgent` — selects the best question across two pools: static boolean attributes (entropy from DataFrame columns) and ConceptNet-generated semantic questions (entropy from relation coverage). CN wins on ties.
-- `BeliefAgent` + `BeliefState` — immutable state tracking. `update()` routes `"cn:..."` keys to `filter_candidates_by_conceptnet()` and all other keys to the boolean `filter_candidates()`.
+- `QuestionAgent` — selects the best question across two pools: static boolean attributes (entropy from DataFrame columns) and ConceptNet-generated semantic questions (entropy from relation coverage). CN wins on ties. When a CN question wins, it is resolved to its mapped static attribute via `_CN_TO_ATTR` in `question_agent.py` before being returned — so `select()` always returns a static attribute column name as the filter key, with the CN question text preserved for display.
+- `BeliefAgent` + `BeliefState` — immutable state tracking. `update()` always calls `filter_candidates()` with a static attribute column name. It never calls `filter_candidates_by_conceptnet()`.
 - `GuesserAgent` — stopping condition + `GuessResult` dataclass.
 
-**`candidate_filter.py`**: Two filter functions, same two-step structure. `filter_candidates()` uses a boolean column as the gate. `filter_candidates_by_conceptnet()` uses ConceptNet relation membership as the gate. Both apply centroid + cosine scoring as a display-only layer on top.
+**`candidate_filter.py`**: Two filter functions. `filter_candidates()` uses a boolean column as the gate; this is the only one called in the active game loop. `filter_candidates_by_conceptnet()` is retained in the codebase for future use but is not called during gameplay. Both apply centroid + cosine scoring as a display-only layer on top.
 
 **`conceptnet.py`**: `ConceptNetClient` fetches edges from `api.conceptnet.io`, caches to `data/conceptnet_cache.json` (never re-fetches a cached word). Exposes `get_question_candidates(candidates)`, `get_relation_coverage(key, candidates)`, and `has_relation(word, key)`. Returns empty results gracefully on network failure. Question key format: `"cn:IsA:bird"`, `"cn:CapableOf:fly"`, etc.
 
@@ -47,8 +47,8 @@ Do NOT use pip outside the conda env (`20q_env`).
 
 ## Design constraints (do not violate)
 
-1. Boolean filter is the hard gate for static attribute questions — cosine similarity ranks survivors, never eliminates them.
-2. ConceptNet relation membership is the gate for CN questions — same cosine scoring layer on top.
+1. Boolean filter is the hard gate for all questions — cosine similarity ranks survivors, never eliminates them.
+2. ConceptNet is used for question selection only, not filtering. CN questions are mapped to static attributes via `_CN_TO_ATTR` in `question_agent.py` before the filter step. `filter_candidates_by_conceptnet()` is not called in the active game loop.
 3. Question selection is greedy entropy — no lookahead or beam search. CN wins on entropy ties.
 4. Invalid input does not cost a turn.
 5. `GameRunner` is a pure orchestrator — no filtering, scoring, or entropy math inside `game.py`.

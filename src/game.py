@@ -80,7 +80,7 @@ def run_game(data: dict) -> None:
 
     display_intro(objects)
 
-    belief_agent = BeliefAgent(vectors, cn_client)
+    belief_agent = BeliefAgent(vectors)
     question_agent = QuestionAgent(attributes, questions, cn_client)
     guesser_agent = GuesserAgent()
 
