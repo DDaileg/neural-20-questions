@@ -68,6 +68,21 @@ The Shark example above illustrates this directly. After "Is it big? → yes", t
 
 This is a form of **soft belief updating** — each answer doesn't just cut the candidate list, it reshapes the system's semantic picture of what the target probably is.
 
+### Phase 2.5: Hybrid Reasoning with ConceptNet
+
+Phase 2.5 adds a second question source alongside the entropy-based attribute selector. A `ConceptNetClient` queries ConceptNet's API at startup and fetches relational data for each candidate object across seven relation types — `IsA`, `UsedFor`, `HasProperty`, `CapableOf`, `AtLocation`, `MadeOf`, and `PartOf` — and maps them to yes/no question templates:
+
+| Relation | Example | Question |
+|---|---|---|
+| `IsA` | bee → insect | "Is it a type of insect?" |
+| `HasProperty` | ice → cold | "Is it cold?" |
+| `UsedFor` | hammer → hitting nails | "Is it used for hitting?" |
+| `CapableOf` | bird → flying | "Can it fly?" |
+
+At each turn, the system compares the best ConceptNet-derived question against the best entropy-selected attribute question. ConceptNet wins on a tie. This means the system can generate discriminative questions from real-world relational knowledge rather than the manually-defined attribute table alone — and ask sensible questions about objects it hasn't been explicitly trained on.
+
+Responses are cached locally to `data/conceptnet_cache.json` so repeated runs don't re-query the API. If the API is unavailable, the system falls back to the static entropy selector transparently — the game continues without interruption.
+
 ---
 
 ## Project Structure
@@ -82,8 +97,9 @@ neural-20-questions/
 │   ├── data_loader.py              # Reads CSVs, precomputes spaCy vectors, returns data dict
 │   ├── entropy.py                  # Shannon entropy calculation + question selector
 │   ├── candidate_filter.py        # Hybrid boolean + cosine similarity filtering
+│   ├── conceptnet.py              # ConceptNetClient — fetches relations, generates questions, caches responses
 │   ├── game.py                    # Game loop, I/O, reasoning trace (GameRunner orchestrator)
-│   ├── question_agent.py          # QuestionAgent — owns question selection via entropy
+│   ├── question_agent.py          # QuestionAgent — owns question selection via entropy + ConceptNet
 │   ├── belief_agent.py            # BeliefAgent — owns candidate state (BeliefState dataclass)
 │   └── guesser_agent.py           # GuesserAgent — owns stopping condition (GuessResult dataclass)
 ├── archive/
@@ -188,6 +204,17 @@ The key design decision: similarity scoring ranks survivors, it doesn't eliminat
 
 `game.py` required only one change: passing `vectors` into `filter_candidates()`. No other module was touched.
 
+### v5 — Phase 2.5: ConceptNet Integration
+Phase 2.5 introduces a second question source — ConceptNet's relational knowledge graph — alongside the existing entropy-based selector.
+
+`conceptnet.py` introduces `ConceptNetClient`, which fetches relation data for each candidate word at startup across seven relation types and maps them to natural language question templates. Responses are cached to `data/conceptnet_cache.json` so the API is only hit once per word. If the API returns a 502 or times out, the client fails gracefully and the game continues on the static attribute selector — no interruption, no error.
+
+`candidate_filter.py` gains a `filter_candidates_by_conceptnet()` function that runs ConceptNet-generated questions through the same boolean filter pipeline as attribute questions. `BeliefAgent` and `QuestionAgent` both accept an optional `cn_client` parameter. At each turn, the system scores the best ConceptNet question against the best entropy-selected attribute question and takes whichever is more informative — ConceptNet wins on a tie.
+
+The first ConceptNet question I observed in a real game: `cn:IsA:insect → "Is it a type of insect?"` outscored the static attribute selector for Bee. That was the moment the system started asking questions I hadn't written.
+
+The seam for Phase 3 remains unchanged — swapping `entropy.py` for a neural selector will automatically apply to both question sources.
+
 ---
 
 ## What I Learned
@@ -208,29 +235,18 @@ I haven't fully answered either of them yet — this project is still in progres
 
 **Word vectors as semantic geometry.** In Phase 2, I ran into a design failure before getting to the working version. My first attempt used similarity scoring as the sole elimination mechanism — no boolean filter. Everything stayed above the threshold because cosine similarity in a dense vector space doesn't naturally produce clean hard separations. The fix was to keep boolean filtering as the gate and use similarity for ranking only. That distinction — between a hard decision boundary and a soft scoring signal — is something I now think about explicitly when designing any filtering step.
 
+**Knowledge graphs as a question source.** Phase 2.5 taught me something I didn't expect: the hardest part of integrating ConceptNet wasn't the API or the caching — it was deciding what to do when a ConceptNet question and an entropy-selected question are both good. The tie-breaking rule (ConceptNet wins) is a design choice, not a mathematical fact. Recognizing that two good approaches can coexist in the same system — and that you still have to pick one when they disagree — was a new kind of design problem for me.
+
 ---
 
 ## What's Next
-
-### Phase 2.5 — Hybrid Reasoning with ConceptNet
-
-Rather than manually expanding the attribute list, Phase 2.5 will use **ConceptNet** to automatically extract features from real-world relational knowledge. ConceptNet's relation types — `IsA`, `UsedFor`, `HasProperty`, `CapableOf`, `AtLocation` — map naturally to yes/no question templates:
-
-| Relation | Example | Question |
-|---|---|---|
-| `IsA` | dog → animal | "Is it a type of animal?" |
-| `HasProperty` | ice → cold | "Is it cold?" |
-| `UsedFor` | hammer → hitting nails | "Is it used for hitting?" |
-| `CapableOf` | bird → flying | "Can it fly?" |
-
-This means the system can generate its own questions for objects it hasn't seen before — and validate them against spaCy's semantic space to ensure they're discriminative.
 
 ### Full Roadmap
 
 - [x] **Phase 1 — Manual decision tree:** fixed object list, binary attributes, game loop
 - [x] **Phase 1.5 — Entropy-based question selection:** Shannon entropy replaces table-order questioning; reasoning trace added
 - [x] **Phase 2 — Semantic scoring layer:** spaCy word vectors + cosine similarity scoring on survivors; semantic ranking visible in reasoning trace
-- [ ] **Phase 2.5 — ConceptNet integration:** automated feature extraction from relational knowledge; dynamically generated yes/no questions from relation templates
+- [x] **Phase 2.5 — ConceptNet integration:** automated feature extraction from relational knowledge; dynamically generated yes/no questions from relation templates; local JSON cache + graceful API fallback
 - [ ] **Phase 3 — Neural question selector:** train an MLP to predict the best next question from the current answer state, replacing the greedy entropy selector
 - [ ] **Phase 4 — Online learning:** update the knowledge base when the bot guesses wrong; new objects and attributes added through gameplay
 - [ ] **Streamlit interface:** browser-based version for shareable demos
