@@ -4,14 +4,14 @@ candidate_filter.py
 Responsible for narrowing the candidate set based on yes/no answers.
 No entropy logic, no I/O, no data loading — pure filtering and scoring.
 
-Phase 2: filter_candidates() uses a hybrid approach (Option A corrected):
-  1. Hard boolean filter on the answered attribute (keeps the game functional)
+Phase 2: filter_candidates() uses a hybrid approach:
+  1. Hard boolean filter on the answered attribute (primary narrowing gate)
   2. Build a centroid from surviving candidates' vectors
-  3. Score and rank survivors by cosine similarity to that centroid
-  4. Scores are used for display in the reasoning trace — not for elimination
+  3. Score survivors by cosine similarity to that centroid (display only)
 
-This means boolean filtering still drives narrowing (correctness), while
-similarity scoring adds semantic ranking on top (portfolio signal).
+Phase 2.5: filter_candidates_by_conceptnet() mirrors the same two-step
+  logic but uses ConceptNet relation membership as the gate instead of
+  a boolean column. The cosine scoring layer is identical.
 """
 
 import numpy as np
@@ -91,6 +91,69 @@ def filter_candidates(
     df_filtered = df_filtered.copy()
     df_filtered["score"] = scores
 
+    return df_filtered.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+def filter_candidates_by_conceptnet(
+    df_subset: pd.DataFrame,
+    question_key: str,
+    answer: str,
+    cn_client,
+    vectors: dict,
+) -> pd.DataFrame:
+    """
+    Phase 2.5: Hybrid ConceptNet relation gate + cosine similarity scoring.
+
+    Step 1 — Gate: keep candidates where has_relation(name, question_key)
+              matches the expected answer. This is the primary narrowing
+              mechanism for ConceptNet-sourced questions.
+
+    Steps 2–3 — Same centroid + cosine scoring as filter_candidates().
+
+    Args:
+        df_subset    : DataFrame of current candidate objects
+        question_key : ConceptNet question key, e.g. "cn:IsA:bird"
+        answer       : raw user input — "y" or "n"
+        cn_client    : ConceptNetClient instance (cache already warm)
+        vectors      : dict of {object_name: 300-dim numpy vector}
+
+    Returns:
+        Filtered DataFrame sorted by similarity score descending.
+        Includes a "score" column for the reasoning trace.
+    """
+    expected = (answer == "y")
+
+    # Step 1: ConceptNet relation gate
+    mask = [
+        cn_client.has_relation(name, question_key) == expected
+        for name in df_subset["Name"].tolist()
+    ]
+    df_filtered = df_subset[mask].reset_index(drop=True)
+
+    if len(df_filtered) == 0:
+        df_filtered = df_filtered.copy()
+        df_filtered["score"] = 0.0
+        return df_filtered
+
+    # Steps 2–3: centroid + cosine scoring (identical to boolean path)
+    survivor_vectors = np.array([
+        vectors[name] for name in df_filtered["Name"].tolist()
+        if name in vectors and np.linalg.norm(vectors[name]) > 0
+    ])
+
+    if len(survivor_vectors) == 0:
+        df_filtered = df_filtered.copy()
+        df_filtered["score"] = 0.0
+        return df_filtered
+
+    centroid = survivor_vectors.mean(axis=0)
+    scores = [
+        cosine_similarity(centroid, vectors.get(name, np.zeros(300)))
+        for name in df_filtered["Name"].tolist()
+    ]
+
+    df_filtered = df_filtered.copy()
+    df_filtered["score"] = scores
     return df_filtered.sort_values("score", ascending=False).reset_index(drop=True)
 
 
