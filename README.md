@@ -147,6 +147,13 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_md
 python main.py
 ```
+## Browser Demo
+
+Run the Streamlit demo locally:
+
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
 
 The game starts immediately in your terminal.
 
@@ -249,7 +256,7 @@ I haven't fully answered either of them yet — this project is still in progres
 - [x] **Phase 2.5 — ConceptNet integration:** automated feature extraction from relational knowledge; dynamically generated yes/no questions from relation templates; local JSON cache + graceful API fallback
 - [ ] **Phase 3 — Neural question selector:** train an MLP to predict the best next question from the current answer state, replacing the greedy entropy selector
 - [ ] **Phase 4 — Online learning:** update the knowledge base when the bot guesses wrong; new objects and attributes added through gameplay
-- [ ] **Streamlit interface:** browser-based version for shareable demos
+- [x] **Streamlit interface:** browser-based version for shareable demos
 
 ---
 
