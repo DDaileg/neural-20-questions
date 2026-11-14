@@ -2,4 +2,5 @@ numpy
 pandas
 # Phase 2 (embeddings):
 spacy
+streamlit
 # torch
