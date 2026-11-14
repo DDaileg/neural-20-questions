@@ -12,6 +12,10 @@ At its core, this project is about **efficient information extraction under unce
 
 ## Demo
 
+![Neural 20 Questions browser interface preview](docs/interface-preview.svg)
+
+*Representative preview of the Streamlit interface. Run the app locally for the interactive reasoning trace.*
+
 ```
 Think of one of these objects:
 Elephant, Chair, Eagle, Person, Shark, Wrench, Coin, Dog, Hat, Jeans,
@@ -116,6 +120,7 @@ neural-20-questions/
 │   │   └── 20_Questions_P1.5.1.ipynb  # v1.5.1 — final notebook version
 │   └── README_v1.md               # Original README preserved verbatim
 ├── main.py                        # Entry point — run this to play
+├── streamlit_app.py               # Browser demo with visible reasoning trace
 ├── requirements.txt
 └── README.md
 ```
@@ -154,8 +159,9 @@ Run the Streamlit demo locally:
 ```bash
 pip install -r requirements.txt
 streamlit run streamlit_app.py
+```
 
-The game starts immediately in your terminal.
+The browser version uses the same entropy selector, boolean pruning, and semantic-ranking components as the terminal game. ConceptNet questions remain available in the terminal version while the browser demo intentionally uses the deterministic static-question path.
 
 ---
 
@@ -186,7 +192,7 @@ Key decisions:
 - **`game.py`** — orchestrates the other modules; display functions separated for future Streamlit compatibility
 - **`main.py`** — single entry point; `python main.py` runs the game from the project root
 
-Behavior is identical to v1.5.1. Structure is production-ready.
+Behavior is identical to v1.5.1. The structure is modular and easier to test and extend; it remains a learning prototype rather than a production system.
 
 ### v3 — Multi-Agent Architecture
 The v2 modules were clean, but `game.py` was still making decisions it shouldn't own — calling entropy directly, holding game state as loose local variables, embedding the stopping condition in a `while` loop. v3 introduces three explicit agents, each with a single defined responsibility.
